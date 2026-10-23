@@ -103,11 +103,11 @@ const PhoneTracker: React.FC = () => {
     setResult(null);
 
     try {
-      const response = await axios.post(API_ENDPOINTS.TRACK_PHONE, {
-        phone_number: phone
-      }, {
-        timeout: 30000
-      });
+      const response = await axios.post(
+        API_ENDPOINTS.TRACK_PHONE,
+        { phone_number: phone },
+        { timeout: 30000 }
+      );
 
       setResult(response.data);
     } catch (err: unknown) {
@@ -138,14 +138,14 @@ const PhoneTracker: React.FC = () => {
     ? [
         {
           name: '必应公开网页搜索',
-          description: '查找公开网页中与该号码相关的线索',
+          description: '搜索公开网页中的号码记录、诈骗或骚扰投诉及企业信息',
           url: `https://www.bing.com/search?q=${encodeURIComponent(
             `"${result.phone_number}" (诈骗 OR 骚扰 OR 垃圾电话 OR 企业)`
           )}`
         },
         {
           name: 'Google 公开网页搜索',
-          description: '交叉核对公开网页记录',
+          description: '交叉搜索公开网页中的号码相关记录',
           url: `https://www.google.com/search?q=${encodeURIComponent(
             `"${result.phone_number}" (scam OR spam OR business OR fraud)`
           )}`
@@ -163,15 +163,12 @@ const PhoneTracker: React.FC = () => {
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
-      <Card
-        title="手机号公开信息查询"
-        style={{ marginBottom: 16 }}
-      >
+      <Card title="手机号公开信息查询" style={{ marginBottom: 16 }}>
         <Alert
           type="info"
           showIcon
           message="查询范围说明"
-          description="本工具用于号码格式验证、号码段信息和公开反诈线索查询。普通号码库不能确认号码当前是否有人使用，也不能获取持有人的真实身份、实时位置或私人资料。"
+          description="本工具用于号码格式验证、号码段信息和公开网页线索查询。普通号码库不能确认号码当前是否有人使用，也不能获取持有人的真实身份、实时位置或私人资料。"
           style={{ marginBottom: 20 }}
         />
 
@@ -228,7 +225,7 @@ const PhoneTracker: React.FC = () => {
       {result && (
         <>
           <Card
-            title="一、号码概览"
+            title="一、号码概览与归属线索"
             style={{ marginBottom: 16 }}
             extra={
               <Button
@@ -240,7 +237,7 @@ const PhoneTracker: React.FC = () => {
             }
           >
             <Descriptions bordered column={{ xs: 1, sm: 2 }}>
-              <Descriptions.Item label="原始号码">
+              <Descriptions.Item label="查询号码">
                 {displayValue(result.phone_number)}
               </Descriptions.Item>
               <Descriptions.Item label="国家或地区">
@@ -263,27 +260,11 @@ const PhoneTracker: React.FC = () => {
               <Descriptions.Item label="号码类型">
                 {displayValue(result.type)}
               </Descriptions.Item>
-              <Descriptions.Item label="号码国家区号">
+              <Descriptions.Item label="国家或地区区号">
                 {result.country_code !== undefined
                   ? `+${result.country_code}`
                   : '暂无数据'}
               </Descriptions.Item>
-            </Descriptions>
-
-            <Alert
-              type="warning"
-              showIcon
-              message="有效不代表正在使用"
-              description="号码有效性来自号码规划和号码段元数据，并不代表该号码已分配、能够接通，或当前由某个特定的人持有。"
-              style={{ marginTop: 16 }}
-            />
-          </Card>
-
-          <Card
-            title="二、号码归属与运营商线索"
-            style={{ marginBottom: 16 }}
-          >
-            <Descriptions bordered column={{ xs: 1, sm: 2 }}>
               <Descriptions.Item label="地区描述">
                 {countryName}
                 {result.location &&
@@ -298,47 +279,28 @@ const PhoneTracker: React.FC = () => {
               <Descriptions.Item label="时区">
                 {displayValue(result.timezone)}
               </Descriptions.Item>
-              <Descriptions.Item label="国家或地区代码">
-                {displayValue(countryCode)}
-              </Descriptions.Item>
             </Descriptions>
 
-            <Paragraph type="secondary" style={{ marginTop: 12 }}>
-              运营商信息可能反映号码段的原始分配情况。号码携转、重新分配及数据更新延迟都可能导致结果与当前情况不同。
-            </Paragraph>
-          </Card>
-
-          <Card
-            title="三、号码格式详情"
-            style={{ marginBottom: 16 }}
-          >
-            <Descriptions bordered column={1}>
-              <Descriptions.Item label="国际格式">
-                {displayValue(result.international_format)}
-              </Descriptions.Item>
-              <Descriptions.Item label="E.164 标准格式">
-                {displayValue(result.e164_format)}
-              </Descriptions.Item>
-              <Descriptions.Item label="国内拨号格式">
-                {displayValue(result.mobile_format)}
-              </Descriptions.Item>
-              <Descriptions.Item label="国内号码部分">
-                {displayValue(result.national_number)}
-              </Descriptions.Item>
-            </Descriptions>
-          </Card>
-
-          <Card
-            title="四、公开网页线索"
-            style={{ marginBottom: 16 }}
-          >
             <Alert
-              type="info"
+              type="warning"
               showIcon
-              message="公开网页搜索，不代表已确认存在记录"
-              description="点击后会在搜索引擎中打开查询结果。GhostTrack 当前不会自动抓取、核实或汇总这些搜索结果；请逐条检查原始网页、发布日期和发布机构。"
-              style={{ marginBottom: 16 }}
+              message="号码有效不代表正在使用"
+              description="号码有效性来自号码规划和号码段元数据，并不代表号码已分配、能够接通，或当前由某个特定的人持有。运营商信息可能反映号码段的原始分配情况；号码携转、重新分配和数据更新延迟可能导致结果与当前情况不同。"
+              style={{ marginTop: 16 }}
             />
+          </Card>
+
+          <Card
+            title="二、公开网页线索与数据可信度"
+            style={{ marginBottom: 16 }}
+          >
+            <Paragraph>
+              <Text strong>公开网页检索</Text>
+            </Paragraph>
+
+            <Paragraph type="secondary">
+              以下列出针对该号码生成的公开网页检索入口。当前版本尚未自动抓取搜索引擎结果，因此这里不会把未经检索和核实的信息显示为已确认的查询结果。
+            </Paragraph>
 
             <Space direction="vertical" style={{ width: '100%' }} size="middle">
               {publicSearchLinks.map((item) => (
@@ -353,11 +315,20 @@ const PhoneTracker: React.FC = () => {
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      打开搜索
+                      查看网页
                     </a>
                   }
                 >
                   <Text type="secondary">{item.description}</Text>
+                  <div style={{ marginTop: 8 }}>
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {item.url}
+                    </a>
+                  </div>
                 </Card>
               ))}
             </Space>
@@ -365,25 +336,15 @@ const PhoneTracker: React.FC = () => {
             <Divider />
 
             <Paragraph>
-              <Text strong>核查建议</Text>
+              <Text strong>数据来源</Text>
             </Paragraph>
-            <ul>
-              <li>优先参考政府部门、运营商和可信反诈机构发布的资料。</li>
-              <li>用户评论和论坛投诉仅属于未经独立核实的线索。</li>
-              <li>没有搜索到投诉，不代表号码安全；搜索到投诉，也不一定能证明号码持有人实施了诈骗。</li>
-            </ul>
-          </Card>
 
-          <Card
-            title="五、数据来源与可信度"
-            style={{ marginBottom: 16 }}
-          >
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>
               <div>
                 <Tag color="blue">号码元数据</Tag>
                 <Text strong>Google libphonenumber 号码库</Text>
                 <Paragraph type="secondary">
-                  用于号码解析、号码段规则验证、格式化、号码类型、时区和可用的归属描述。
+                  用于号码解析、号码段规则验证、格式化、号码类型、时区及可用的归属描述。
                 </Paragraph>
                 <a
                   href="https://github.com/google/libphonenumber"
@@ -400,7 +361,7 @@ const PhoneTracker: React.FC = () => {
                 <Tag color="gold">运营商线索</Tag>
                 <Text strong>号码段元数据</Text>
                 <Paragraph type="secondary">
-                  运营商字段不保证代表当前实际运营商，可信度取决于号码规划资料、号码携转情况和元数据更新时间。
+                  不保证代表当前实际运营商，可信度取决于号码规划资料、号码携转情况及元数据更新时间。
                 </Paragraph>
               </div>
 
@@ -410,7 +371,7 @@ const PhoneTracker: React.FC = () => {
                 <Tag color="purple">公开网页线索</Tag>
                 <Text strong>搜索引擎索引</Text>
                 <Paragraph type="secondary">
-                  仅用于发现公开网页线索。搜索结果本身未经 GhostTrack 验证，不构成事实认定。
+                  用于发现公开网页中的相关线索。搜索结果需要逐条核查原始网页、发布日期和发布机构；论坛评论或用户投诉不能直接证明号码持有人实施了诈骗。
                 </Paragraph>
               </div>
 
@@ -418,15 +379,23 @@ const PhoneTracker: React.FC = () => {
 
               <div>
                 <SafetyOutlined style={{ marginRight: 8 }} />
-                <Text strong>当前可信度说明</Text>
+                <Text strong>可信度说明</Text>
                 <Paragraph type="secondary">
-                  号码格式和号码段验证：参考号码库规则；
-                  运营商和地区：参考性信息；
-                  网页投诉和用户评论：待人工核实。
-                  当前版本没有接入实时运营商数据库或独立反诈投诉数据库。
+                  号码格式和号码段验证：参考号码库规则；运营商和地区：参考性信息；公开网页投诉和用户评论：待人工核实。当前版本尚未接入实时运营商数据库或独立反诈投诉数据库，也不会仅凭搜索结果判定号码是否安全。
                 </Paragraph>
               </div>
             </Space>
+
+            <Divider />
+
+            <Paragraph>
+              <Text strong>核查建议</Text>
+            </Paragraph>
+            <ul>
+              <li>优先参考政府部门、运营商和可信反诈机构发布的资料。</li>
+              <li>核对网页发布日期、原始来源及是否确实指向同一个号码。</li>
+              <li>没有搜索到投诉不代表号码安全；出现投诉也不一定能证明号码持有人实施了诈骗。</li>
+            </ul>
           </Card>
         </>
       )}
