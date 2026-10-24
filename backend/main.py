@@ -1,21 +1,24 @@
 
+import os
+import re
+import time
+from collections import defaultdict
+from typing import Optional
+from urllib.parse import quote
+
+import phonenumbers
+import requests
+import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, validator
-from collections import defaultdict
-from urllib.parse import quote
-from typing import Optional
-import requests
-import phonenumbers
+from fastapi.responses import JSONResponse
 from phonenumbers import carrier, geocoder, timezone
-import uvicorn
-import time
-import re
+from pydantic import BaseModel, validator
 
 app = FastAPI(
     title="GhostTrack API",
     description="OSINT公开信息查询 API",
-    version="2.1.0"
+    version="2.2.0"
 )
 
 # -------------------------
@@ -53,7 +56,6 @@ async def rate_limit_middleware(request: Request, call_next):
     client_ip = request.client.host if request.client else "unknown"
 
     if not rate_limiter.is_allowed(client_ip):
-        from fastapi.responses import JSONResponse
         return JSONResponse(
             status_code=429,
             content={"detail": "请求过于频繁，请稍后再试。"}
@@ -64,9 +66,7 @@ async def rate_limit_middleware(request: Request, call_next):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://ghosttrackweb.onrender.com"
-    ],
+    allow_origins=["https://ghosttrackweb.onrender.com"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -192,8 +192,7 @@ COUNTRY_NAMES = {
     "ZA": "南非",
     "MX": "墨西哥",
     "AR": "阿根廷",
-    "TR": "土耳其",
-    "ES": "西班牙"
+    "TR": "土耳其"
 }
 
 CARRIER_NAMES = {
@@ -221,6 +220,136 @@ NUMBER_TYPE_NAMES = {
 
 
 # -------------------------
+# Serper 公开网页搜索
+# -------------------------
+
+def search_public_web(phone_number: str) -> dict:
+    """
+    使用 Serper 搜索公开网页。
+    API 密钥从 Render 环境变量 SERPER_API_KEY 读取。
+    不返回密钥，也不把密钥写入日志或响应。
+    """
+    api_key = os.getenv("SERPER_API_KEY", "").strip()
+
+    if not api_key:
+        return {
+            "status": "not_configured",
+            "message": "尚未配置公开网页搜索 API。",
+            "total_results": 0,
+            "results": []
+        }
+
+    query = (
+        f'"{phone_number}" '
+        '(诈骗 OR 骚扰电话 OR 企业 OR 联系方式)'
+    )
+
+    try:
+        response = requests.post(
+            "https://google.serper.dev/search",
+            headers={
+                "X-API-KEY": api_key,
+                "Content-Type": "application/json"
+            },
+            json={
+                "q": query,
+                "num": 10
+            },
+            timeout=15
+        )
+
+        if response.status_code == 401:
+            return {
+                "status": "authentication_error",
+                "message": "搜索服务认证失败，请检查 Render 中的 API 密钥。",
+                "total_results": 0,
+                "results": []
+            }
+
+        if response.status_code == 403:
+            return {
+                "status": "access_denied",
+                "message": "搜索服务拒绝请求，请检查 API 权限或额度。",
+                "total_results": 0,
+                "results": []
+            }
+
+        if response.status_code == 429:
+            return {
+                "status": "quota_or_rate_limit",
+                "message": "搜索请求达到服务限制，请稍后重试或检查剩余额度。",
+                "total_results": 0,
+                "results": []
+            }
+
+        response.raise_for_status()
+        data = response.json()
+
+        results = []
+
+        for item in data.get("organic", []):
+            link = item.get("link")
+            title = item.get("title")
+            snippet = item.get("snippet")
+
+            if not link or not title:
+                continue
+
+            if not link.startswith(("https://", "http://")):
+                continue
+
+            results.append({
+                "title": title,
+                "url": link,
+                "snippet": snippet or "",
+                "date": item.get("date"),
+                "source": item.get("source") or "",
+                "position": item.get("position"),
+                "status": "待人工核实",
+                "confidence": "搜索发现，尚未独立验证"
+            })
+
+        if not results:
+            return {
+                "status": "no_results",
+                "message": "本次搜索没有返回公开网页结果。",
+                "total_results": 0,
+                "results": []
+            }
+
+        return {
+            "status": "success",
+            "message": "已获取公开网页搜索结果，请核对原始网页。",
+            "total_results": len(results),
+            "results": results
+        }
+
+    except requests.Timeout:
+        return {
+            "status": "timeout",
+            "message": "公开网页搜索超时，请稍后重试。",
+            "total_results": 0,
+            "results": []
+        }
+
+    except requests.RequestException:
+        return {
+            "status": "service_error",
+            "message": "公开网页搜索服务暂时不可用。",
+            "total_results": 0,
+            "results": []
+        }
+
+    except (ValueError, TypeError):
+        return {
+            "status": "invalid_response",
+            "message": "搜索服务返回的数据无法读取。",
+            "total_results": 0,
+            "results": []
+        }
+
+
+# -------------------------
 # 基础接口
 # -------------------------
 
@@ -229,7 +358,7 @@ async def root():
     return {
         "message": "GhostTrack API",
         "status": "running",
-        "version": "2.1.0"
+        "version": "2.2.0"
     }
 
 
@@ -238,7 +367,7 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": time.time(),
-        "version": "2.1.0"
+        "version": "2.2.0"
     }
 
 
@@ -368,7 +497,6 @@ async def track_phone(request: PhoneTrackRequest):
             else None
         )
 
-        # 中文地区描述优先；不可用时尝试英文描述。
         location_zh = (
             geocoder.description_for_number(parsed, "zh")
             or geocoder.description_for_number(parsed, "en")
@@ -398,7 +526,7 @@ async def track_phone(request: PhoneTrackRequest):
             region_code or "未知"
         )
 
-        # 公开网页搜索入口：只生成链接，不宣称已检索或验证。
+        # 保留原有搜索入口，方便用户手动交叉核实。
         quoted_phone = quote(f'"{e164_format}"')
         fraud_terms = quote(
             '"诈骗" OR "骚扰电话" OR "垃圾电话" OR "反诈"'
@@ -440,6 +568,46 @@ async def track_phone(request: PhoneTrackRequest):
             }
         ]
 
+        # 自动检索公开网页。即使搜索服务失败，也保留号码基础查询结果。
+        web_search = search_public_web(e164_format)
+
+        data_sources = [
+            {
+                "name": "Google libphonenumber",
+                "url": "https://github.com/google/libphonenumber",
+                "fields": [
+                    "号码格式",
+                    "号码段有效性",
+                    "号码类型",
+                    "地区描述",
+                    "时区",
+                    "运营商号码段信息"
+                ],
+                "confidence": "号码规则参考",
+                "limitations": (
+                    "不能证明号码当前有人使用、能够接通，"
+                    "也不能确认当前持有人或实时位置。"
+                )
+            }
+        ]
+
+        if web_search["status"] == "success":
+            data_sources.append({
+                "name": "Serper 公开网页搜索",
+                "url": "https://serper.dev/",
+                "fields": [
+                    "公开网页标题",
+                    "网页摘要",
+                    "原始网页链接",
+                    "搜索结果日期（如有）"
+                ],
+                "confidence": "搜索发现，尚未独立验证",
+                "limitations": (
+                    "搜索结果不代表号码持有人身份已被确认。"
+                    "请打开原始网页核对上下文、日期和号码是否一致。"
+                )
+            })
+
         return {
             "phone_number": request.phone_number,
             "normalized_number": e164_format,
@@ -461,25 +629,7 @@ async def track_phone(request: PhoneTrackRequest):
             "mobile_format": national_format,
             "national_format": national_format,
 
-            "data_sources": [
-                {
-                    "name": "Google libphonenumber",
-                    "url": "https://github.com/google/libphonenumber",
-                    "fields": [
-                        "号码格式",
-                        "号码段有效性",
-                        "号码类型",
-                        "地区描述",
-                        "时区",
-                        "运营商号码段信息"
-                    ],
-                    "confidence": "号码规则参考",
-                    "limitations": (
-                        "不能证明号码当前有人使用、能够接通，"
-                        "也不能确认当前持有人或实时位置。"
-                    )
-                }
-            ],
+            "data_sources": data_sources,
 
             "confidence": {
                 "format": {
@@ -508,14 +658,24 @@ async def track_phone(request: PhoneTrackRequest):
                     )
                 },
                 "public_web": {
-                    "level": "待人工核实",
-                    "reason": (
-                        "这里只生成搜索入口，没有自动抓取或核验搜索结果。"
-                    )
+                    "level": (
+                        "已获取搜索结果，待人工核实"
+                        if web_search["status"] == "success"
+                        else "暂未获取搜索结果"
+                    ),
+                    "reason": web_search["message"]
                 }
             },
 
+            # 保留旧字段，兼容现有前端。
             "public_search_links": public_search,
+
+            # 新字段：包含自动搜索状态、标题、摘要和原始链接。
+            "public_search_results": web_search["results"],
+            "public_search_status": web_search["status"],
+            "public_search_message": web_search["message"],
+            "public_search_total": web_search["total_results"],
+
             "lookup_time": time.strftime(
                 "%Y-%m-%dT%H:%M:%SZ",
                 time.gmtime()
