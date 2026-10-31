@@ -4,7 +4,7 @@ import re
 import time
 from collections import defaultdict
 from typing import Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import phonenumbers
 import requests
@@ -220,21 +220,22 @@ NUMBER_TYPE_NAMES = {
 
 
 # -------------------------
-# Serper 公开网页搜索
+# Tavily 公开网页搜索
 # -------------------------
 
 def search_public_web(phone_number: str) -> dict:
     """
-    使用 Serper 搜索公开网页。
-    API 密钥从 Render 环境变量 SERPER_API_KEY 读取。
+    使用 Tavily 搜索公开网页。
+    API 密钥从 Render 环境变量 TAVILY_API_KEY 读取。
     不返回密钥，也不把密钥写入日志或响应。
     """
-    api_key = os.getenv("SERPER_API_KEY", "").strip()
+
+    api_key = os.getenv("TAVILY_API_KEY", "").strip()
 
     if not api_key:
         return {
             "status": "not_configured",
-            "message": "尚未配置公开网页搜索 API。",
+            "message": "尚未配置 Tavily 公开网页搜索 API 密钥。",
             "total_results": 0,
             "results": []
         }
@@ -246,22 +247,25 @@ def search_public_web(phone_number: str) -> dict:
 
     try:
         response = requests.post(
-            "https://google.serper.dev/search",
+            "https://api.tavily.com/search",
             headers={
-                "X-API-KEY": api_key,
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             },
             json={
-                "q": query,
-                "num": 10
+                "query": query,
+                "search_depth": "basic",
+                "max_results": 10,
+                "topic": "general",
+                "include_answer": False
             },
-            timeout=15
+            timeout=20
         )
 
         if response.status_code == 401:
             return {
                 "status": "authentication_error",
-                "message": "搜索服务认证失败，请检查 Render 中的 API 密钥。",
+                "message": "Tavily 认证失败，请检查 Render 中的 TAVILY_API_KEY。",
                 "total_results": 0,
                 "results": []
             }
@@ -269,7 +273,7 @@ def search_public_web(phone_number: str) -> dict:
         if response.status_code == 403:
             return {
                 "status": "access_denied",
-                "message": "搜索服务拒绝请求，请检查 API 权限或额度。",
+                "message": "Tavily 拒绝了搜索请求，请检查 API 权限。",
                 "total_results": 0,
                 "results": []
             }
@@ -277,7 +281,7 @@ def search_public_web(phone_number: str) -> dict:
         if response.status_code == 429:
             return {
                 "status": "quota_or_rate_limit",
-                "message": "搜索请求达到服务限制，请稍后重试或检查剩余额度。",
+                "message": "Tavily 搜索达到额度或频率限制，请检查剩余额度。",
                 "total_results": 0,
                 "results": []
             }
@@ -285,12 +289,22 @@ def search_public_web(phone_number: str) -> dict:
         response.raise_for_status()
         data = response.json()
 
+        if not isinstance(data, dict):
+            return {
+                "status": "invalid_response",
+                "message": "Tavily 返回的数据格式无法识别。",
+                "total_results": 0,
+                "results": []
+            }
+
         results = []
 
-        for item in data.get("organic", []):
-            link = item.get("link")
+        for index, item in enumerate(data.get("results", []), start=1):
+            if not isinstance(item, dict):
+                continue
+
+            link = item.get("url")
             title = item.get("title")
-            snippet = item.get("snippet")
 
             if not link or not title:
                 continue
@@ -298,13 +312,16 @@ def search_public_web(phone_number: str) -> dict:
             if not link.startswith(("https://", "http://")):
                 continue
 
+            parsed_url = urlparse(link)
+            source = parsed_url.netloc or ""
+
             results.append({
-                "title": title,
+                "title": str(title),
                 "url": link,
-                "snippet": snippet or "",
-                "date": item.get("date"),
-                "source": item.get("source") or "",
-                "position": item.get("position"),
+                "snippet": item.get("content") or "",
+                "date": item.get("published_date"),
+                "source": source,
+                "position": index,
                 "status": "待人工核实",
                 "confidence": "搜索发现，尚未独立验证"
             })
@@ -312,14 +329,14 @@ def search_public_web(phone_number: str) -> dict:
         if not results:
             return {
                 "status": "no_results",
-                "message": "本次搜索没有返回公开网页结果。",
+                "message": "Tavily 本次搜索没有返回公开网页结果。",
                 "total_results": 0,
                 "results": []
             }
 
         return {
             "status": "success",
-            "message": "已获取公开网页搜索结果，请核对原始网页。",
+            "message": "已通过 Tavily 获取公开网页搜索结果，请核对原始网页。",
             "total_results": len(results),
             "results": results
         }
@@ -327,7 +344,15 @@ def search_public_web(phone_number: str) -> dict:
     except requests.Timeout:
         return {
             "status": "timeout",
-            "message": "公开网页搜索超时，请稍后重试。",
+            "message": "Tavily 公开网页搜索超时，请稍后重试。",
+            "total_results": 0,
+            "results": []
+        }
+
+    except requests.HTTPError:
+        return {
+            "status": "service_error",
+            "message": "Tavily 搜索服务暂时无法处理请求。",
             "total_results": 0,
             "results": []
         }
@@ -335,15 +360,15 @@ def search_public_web(phone_number: str) -> dict:
     except requests.RequestException:
         return {
             "status": "service_error",
-            "message": "公开网页搜索服务暂时不可用。",
+            "message": "Tavily 公开网页搜索服务暂时不可用。",
             "total_results": 0,
             "results": []
         }
 
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, AttributeError):
         return {
             "status": "invalid_response",
-            "message": "搜索服务返回的数据无法读取。",
+            "message": "Tavily 返回的数据无法读取。",
             "total_results": 0,
             "results": []
         }
@@ -593,8 +618,8 @@ async def track_phone(request: PhoneTrackRequest):
 
         if web_search["status"] == "success":
             data_sources.append({
-                "name": "Serper 公开网页搜索",
-                "url": "https://serper.dev/",
+                "name": "Tavily 公开网页搜索",
+                "url": "https://tavily.com/",
                 "fields": [
                     "公开网页标题",
                     "网页摘要",
@@ -670,7 +695,7 @@ async def track_phone(request: PhoneTrackRequest):
             # 保留旧字段，兼容现有前端。
             "public_search_links": public_search,
 
-            # 新字段：包含自动搜索状态、标题、摘要和原始链接。
+            # 自动搜索结果：标题、摘要、来源和原始链接。
             "public_search_results": web_search["results"],
             "public_search_status": web_search["status"],
             "public_search_message": web_search["message"],
